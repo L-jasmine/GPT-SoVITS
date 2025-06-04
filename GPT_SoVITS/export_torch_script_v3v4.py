@@ -244,16 +244,8 @@ class ExportGPTSovitsHalf(torch.nn.Module):
         self.hop_length: int = hps.data.hop_length
         self.win_length: int = hps.data.win_length
 
-    def forward(
-        self,
-        ssl_content,
-        ref_audio_32k: torch.FloatTensor,
-        phoneme_ids0,
-        phoneme_ids1,
-        bert1,
-        bert2,
-        top_k,
-    ):
+    @torch.jit.export
+    def get_fea_ref(self, ssl_content, ref_audio_32k: torch.FloatTensor, phoneme_ids0):
         refer = spectrogram_torch(
             ref_audio_32k,
             self.filter_length,
@@ -264,21 +256,10 @@ class ExportGPTSovitsHalf(torch.nn.Module):
         ).to(ssl_content.dtype)
 
         codes = self.vq_model.extract_latent(ssl_content)
-        prompt_semantic = codes[0, 0]
-        prompt = prompt_semantic.unsqueeze(0)
-        # print('extract_latent',codes.shape,datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-        pred_semantic = self.t2s_m(prompt, phoneme_ids0, phoneme_ids1, bert1, bert2, top_k)
-        # print('t2s_m',pred_semantic.shape,datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
         ge = self.vq_model.create_ge(refer)
-        # print('create_ge',datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-        prompt_ = prompt.unsqueeze(0)
-        fea_ref = self.vq_model(prompt_, phoneme_ids0, ge)
-        # print('fea_ref',datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        # print(prompt_.shape, phoneme_ids0.shape, ge.shape)
-        # print(fea_ref.shape)
+        fea_ref = self.vq_model(codes, phoneme_ids0, ge)
 
         ref_24k = resamplex(ref_audio_32k, 32000, 24000)
         mel2 = norm_spec(self.mel2(ref_24k)).to(ssl_content.dtype)
@@ -290,11 +271,28 @@ class ExportGPTSovitsHalf(torch.nn.Module):
             fea_ref = fea_ref[:, :, -468:]
             T_min = 468
 
-        fea_todo = self.vq_model(pred_semantic, phoneme_ids1, ge)
-        # print('fea_todo',datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        # print(pred_semantic.shape, phoneme_ids1.shape, ge.shape)
-        # print(fea_todo.shape)
+        return codes, ge, fea_ref, mel2
 
+    @torch.jit.export
+    def get_fea_todo(self, codes, ge, phoneme_ids0, phoneme_ids1, bert1, bert2, top_k):
+        pred_semantic = self.t2s_m(
+            codes[0], phoneme_ids0, phoneme_ids1, bert1, bert2, top_k
+        )
+        fea_todo = self.vq_model(pred_semantic, phoneme_ids1, ge)
+        return fea_todo
+
+    def forward(
+        self,
+        ssl_content,
+        ref_audio_32k: torch.FloatTensor,
+        phoneme_ids0,
+        phoneme_ids1,
+        bert1,
+        bert2,
+        top_k,
+    ):
+        codes, ge, fea_ref, mel2 = self.get_fea_ref(ssl_content, ref_audio_32k, phoneme_ids0)
+        fea_todo = self.get_fea_todo(codes, ge, phoneme_ids0, phoneme_ids1, bert1, bert2, top_k)
         return fea_ref, fea_todo, mel2
 
 
@@ -322,16 +320,8 @@ class ExportGPTSovitsV4Half(torch.nn.Module):
         self.hop_length: int = hps.data.hop_length
         self.win_length: int = hps.data.win_length
 
-    def forward(
-        self,
-        ssl_content,
-        ref_audio_32k: torch.FloatTensor,
-        phoneme_ids0,
-        phoneme_ids1,
-        bert1,
-        bert2,
-        top_k,
-    ):
+    @torch.jit.export
+    def get_fea_ref(self, ssl_content, ref_audio_32k: torch.FloatTensor, phoneme_ids0):
         refer = spectrogram_torch(
             ref_audio_32k,
             self.filter_length,
@@ -342,21 +332,10 @@ class ExportGPTSovitsV4Half(torch.nn.Module):
         ).to(ssl_content.dtype)
 
         codes = self.vq_model.extract_latent(ssl_content)
-        prompt_semantic = codes[0, 0]
-        prompt = prompt_semantic.unsqueeze(0)
-        # print('extract_latent',codes.shape,datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-        pred_semantic = self.t2s_m(prompt, phoneme_ids0, phoneme_ids1, bert1, bert2, top_k)
-        # print('t2s_m',pred_semantic.shape,datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
         ge = self.vq_model.create_ge(refer)
-        # print('create_ge',datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-        prompt_ = prompt.unsqueeze(0)
-        fea_ref = self.vq_model(prompt_, phoneme_ids0, ge)
-        # print('fea_ref',datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        # print(prompt_.shape, phoneme_ids0.shape, ge.shape)
-        # print(fea_ref.shape)
+        fea_ref = self.vq_model(codes, phoneme_ids0, ge)
 
         ref_32k = ref_audio_32k
         mel2 = norm_spec(self.mel2(ref_32k)).to(ssl_content.dtype)
@@ -368,11 +347,28 @@ class ExportGPTSovitsV4Half(torch.nn.Module):
             fea_ref = fea_ref[:, :, -500:]
             T_min = 500
 
-        fea_todo = self.vq_model(pred_semantic, phoneme_ids1, ge)
-        # print('fea_todo',datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        # print(pred_semantic.shape, phoneme_ids1.shape, ge.shape)
-        # print(fea_todo.shape)
+        return codes, ge, fea_ref, mel2
 
+    @torch.jit.export
+    def get_fea_todo(self, codes, ge, phoneme_ids0, phoneme_ids1, bert1, bert2, top_k):
+        pred_semantic = self.t2s_m(
+            codes[0], phoneme_ids0, phoneme_ids1, bert1, bert2, top_k
+        )
+        fea_todo = self.vq_model(pred_semantic, phoneme_ids1, ge)
+        return fea_todo
+
+    def forward(
+        self,
+        ssl_content,
+        ref_audio_32k: torch.FloatTensor,
+        phoneme_ids0,
+        phoneme_ids1,
+        bert1,
+        bert2,
+        top_k,
+    ):
+        codes, ge, fea_ref, mel2 = self.get_fea_ref(ssl_content, ref_audio_32k, phoneme_ids0)
+        fea_todo = self.get_fea_todo(codes, ge, phoneme_ids0, phoneme_ids1, bert1, bert2, top_k)
         return fea_ref, fea_todo, mel2
 
 
@@ -434,7 +430,7 @@ class GPTSoVITSV3(torch.nn.Module):
 
         wav_gen = torch.cat(wav_gen_list, 2)
         return wav_gen[0][0][:wav_gen_length]
-    
+
 class GPTSoVITSV4(torch.nn.Module):
     def __init__(self, gpt_sovits_half, cfm, hifigan):
         super().__init__()
@@ -923,126 +919,6 @@ def export_1(ref_wav_path,ref_wav_text,version="v3"):
 
 
 from datetime import datetime
-
-
-def test_export(
-    todo_text,
-    gpt_sovits_v3_half,
-    cfm,
-    bigvgan,
-    output,
-):
-    # hps = sovits.hps
-    ref_wav_path = "onnx/ad/ref.wav"
-    speed = 1.0
-    sample_steps = 8
-
-    dtype = torch.float16 if is_half == True else torch.float32
-
-    zero_wav = np.zeros(
-        int(16000 * 0.3),
-        dtype=np.float16 if is_half == True else np.float32,
-    )
-
-    with torch.no_grad():
-        wav16k, sr = librosa.load(ref_wav_path, sr=16000)
-        wav16k = torch.from_numpy(wav16k)
-        zero_wav_torch = torch.from_numpy(zero_wav)
-
-        if is_half == True:
-            wav16k = wav16k.half().to(device)
-            zero_wav_torch = zero_wav_torch.half().to(device)
-        else:
-            wav16k = wav16k.to(device)
-            zero_wav_torch = zero_wav_torch.to(device)
-        wav16k = torch.cat([wav16k, zero_wav_torch])
-        ssl_content = ssl_model.model(wav16k.unsqueeze(0))["last_hidden_state"].transpose(1, 2)  # .float()
-
-    ref_audio_32k, _ = librosa.load(ref_wav_path, sr=32000)
-    ref_audio_32k = torch.from_numpy(ref_audio_32k).unsqueeze(0).to(device).float()
-
-    phones1, bert1, norm_text1 = get_phones_and_bert(
-        "你这老坏蛋，我找了你这么久，真没想到在这里找到你。他说。", "all_zh", "v3"
-    )
-    phones2, bert2, norm_text2 = get_phones_and_bert(
-        todo_text,
-        "zh",
-        "v3",
-    )
-    phoneme_ids0 = torch.LongTensor(phones1).to(device).unsqueeze(0)
-    phoneme_ids1 = torch.LongTensor(phones2).to(device).unsqueeze(0)
-
-    bert1 = bert1.T.to(device)
-    bert2 = bert2.T.to(device)
-    top_k = torch.LongTensor([15]).to(device)
-
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    logger.info("start inference %s", current_time)
-    print(
-        ssl_content.shape,
-        ref_audio_32k.shape,
-        phoneme_ids0.shape,
-        phoneme_ids1.shape,
-        bert1.shape,
-        bert2.shape,
-        top_k.shape,
-    )
-    fea_ref, fea_todo, mel2 = gpt_sovits_v3_half(
-        ssl_content, ref_audio_32k, phoneme_ids0, phoneme_ids1, bert1, bert2, top_k
-    )
-    chunk_len = 934 - fea_ref.shape[2]
-    print(fea_ref.shape, fea_todo.shape, mel2.shape)
-
-    cfm_resss = []
-    sample_steps = torch.LongTensor([sample_steps])
-    idx = 0
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    logger.info("start cfm %s", current_time)
-    wav_gen_length = fea_todo.shape[2] * 256
-
-    while 1:
-        current_time = datetime.now()
-        print("idx:", idx, current_time.strftime("%Y-%m-%d %H:%M:%S"))
-        fea_todo_chunk = fea_todo[:, :, idx : idx + chunk_len]
-        if fea_todo_chunk.shape[-1] == 0:
-            break
-
-        complete_len = chunk_len - fea_todo_chunk.shape[-1]
-        if complete_len != 0:
-            fea_todo_chunk = torch.cat([fea_todo_chunk, torch.zeros(1, 512, complete_len).to(device).to(dtype)], 2)
-
-        cfm_res, fea_ref, mel2 = cfm(fea_ref, fea_todo_chunk, mel2, sample_steps)
-        # if complete_len > 0 :
-        #     cfm_res = cfm_res[:, :, :-complete_len]
-        #     fea_ref = fea_ref[:, :, :-complete_len]
-        #     mel2 = mel2[:, :, :-complete_len]
-
-        idx += chunk_len
-
-        current_time = datetime.now()
-        print("cfm end", current_time.strftime("%Y-%m-%d %H:%M:%S"))
-        cfm_res = denorm_spec(cfm_res).to(device)
-        bigvgan_res = bigvgan(cfm_res)
-        cfm_resss.append(bigvgan_res)
-
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    logger.info("start bigvgan %s", current_time)
-    wav_gen = torch.cat(cfm_resss, 2)
-    # cmf_res = denorm_spec(cmf_res)
-    # cmf_res = cmf_res.to(device)
-    # print("cmf_res:", cmf_res.shape)
-
-    # cmf_res = torch.cat([cmf_res,torch.zeros([1,100,2000-cmf_res.size(2)],device=device,dtype=cmf_res.dtype)], 2)
-
-    # wav_gen = bigvgan(cmf_res)
-    print("wav_gen:", wav_gen.shape, wav_gen.dtype)
-    wav_gen = wav_gen[:, :, :wav_gen_length]
-
-    audio = wav_gen[0][0].cpu().detach().numpy()
-    logger.info("end bigvgan %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    sr = 24000
-    soundfile.write(output, (audio * 32768).astype(np.int16), sr)
-
 
 def test_export(
     todo_text,
